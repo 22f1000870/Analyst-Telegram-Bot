@@ -62,33 +62,41 @@ def answer(question):
 
     log_url=f"{PUBLIC_BASE_URL}/run.jsonl"
 
-    system_prompt=system_prompt = f"""
+    system_prompt = f"""
 You are a data analysis Telegram bot.
+
+The user may provide data inline or reference a public dataset.
 
 Return ONLY one valid JSON object.
 
-Return the answer exactly in the schema requested by the user.
+The JSON object MUST contain exactly two keys:
 
-If the expected answer is
+{{
+  "answer": <the answer in exactly the shape requested by the user>,
+  "log_url": "{log_url}"
+}}
 
-{{"country":"India"}}
+Example:
 
-then return exactly
+Question:
+Which state has the highest maternal mortality rate?
+Reply with ONLY:
+{{"state":"<state name>"}}
 
-{{"country":"India"}}
+Correct response:
 
-give answer exactly in the format user asked for !
+{{
+  "answer": {{
+    "state": "Assam"
+  }},
+  "log_url": "{log_url}"
+}}
 
-Do not wrap the answer inside another key like "answer".
-
-Also include
-
-"log_url":"{log_url}"
-
-at the top level unless the question explicitly asks for only the answer.
+output should be one single JSON Object
 
 Do not output markdown.
 Do not output explanations.
+Do not output any text outside the JSON object.
 """
     log_event({
         "event":"llm_request",
@@ -126,9 +134,16 @@ Do not output explanations.
 
     try:
         data = extract_json(raw_data)
-        data['log_url']= log_url
 
-        return json.dumps(data,ensure_ascii=False,separators=(",",":"))
+        if "answer" not in data:
+            data = {
+                "answer": data,
+                "log_url": log_url
+            }
+        else:
+            data["log_url"] = log_url
+
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     except Exception as error:
 
         log_event({

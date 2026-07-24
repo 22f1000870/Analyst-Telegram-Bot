@@ -192,7 +192,7 @@ def run_telegram_bot():
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question)
     )
 
-    bot_app.run_polling()
+    bot_app.run_polling(stop_signals=None)
 
 
 

@@ -16,6 +16,7 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY= os.getenv("GEMINI_API_KEY")
+
 if os.getenv("VERCEL_URL"):
     PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL')}"
 else:
@@ -25,7 +26,14 @@ LOG_FILE = "run.jsonl"
 
 client = OpenAI(api_key=API_KEY,base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
 
+
 app= FastAPI()
+
+telegram_app = (
+    ApplicationBuilder()
+    .token(TELEGRAM_BOT_TOKEN)
+    .build()
+)
 
 @app.get("/")
 async def root():
@@ -187,29 +195,43 @@ async def handle_question(update,context):
 
     await update.message.reply_text(ans)
 
-def run_web_server():
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+telegram_app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_question
+    )
+)
 
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
 
-def run_telegram_bot():
-    bot_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    data = await request.json()
 
-    bot_app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question)
+    update = Update.de_json(
+        data,
+        telegram_app.bot
     )
 
-    bot_app.run_polling(stop_signals=None)
+    await telegram_app.process_update(update)
+
+    return {"ok": True}
+
+@app.get("/setWebhook")
+async def set_webhook():
+
+    url = f"{PUBLIC_BASE_URL}/webhook"
+
+    success = await telegram_app.bot.set_webhook(url)
+
+    return {
+        "success": success,
+        "url": url
+    }
 
 
 
-if __name__ == "__main__":
-    threading.Thread(
-        target=run_telegram_bot,
-        daemon=True
-    ).start()
 
-    run_web_server()
+
 
 
 

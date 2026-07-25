@@ -4,7 +4,7 @@ import json
 import threading
 from telegram import Bot
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI,Request
 from fastapi.responses import FileResponse,PlainTextResponse
 from openai import OpenAI
 from datetime import timezone, datetime,timedelta
@@ -16,7 +16,10 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY= os.getenv("GEMINI_API_KEY")
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+if os.getenv("VERCEL_URL"):
+    PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL')}"
+else:
+    PUBLIC_BASE_URL = "http://localhost:8000"
 
 LOG_FILE = "run.jsonl"
 
@@ -25,8 +28,12 @@ client = OpenAI(api_key=API_KEY,base_url="https://generativelanguage.googleapis.
 app= FastAPI()
 
 @app.get("/")
-def home():
-    return {"status":"running"}
+async def root():
+    return {
+        "status": "running",
+        "base_url": PUBLIC_BASE_URL,
+        "log_url": f"{PUBLIC_BASE_URL}/run.jsonl",
+    }
 
 
 @app.get("/run.jsonl")

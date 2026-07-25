@@ -11,14 +11,16 @@ from datetime import timezone, datetime, timedelta
 import uvicorn
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+import asyncio
+import requests
 
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-# North Flank provides PORT environment variable
-PORT = int(os.getenv("PORT", 8000))
+# Render uses port 10000 by default
+PORT = int(os.getenv("PORT", 10000))
 
 LOG_FILE = "run.jsonl"
 
@@ -35,14 +37,18 @@ async def lifespan(app: FastAPI):
     await telegram_app.initialize()
     await telegram_app.start()
     
-    
-    base_url = os.getenv("PUBLIC_URL")  
+    # Set webhook automatically on startup
+    base_url = os.getenv("PUBLIC_URL")
     if base_url:
         webhook_url = f"{base_url}/webhook"
-        await telegram_app.bot.set_webhook(webhook_url)
-        print(f"Webhook set to: {webhook_url}")
+        try:
+            await telegram_app.bot.set_webhook(webhook_url)
+            print(f"✅ Webhook set to: {webhook_url}")
+        except Exception as e:
+            print(f"❌ Failed to set webhook: {e}")
     else:
-        print("PUBLIC_URL not set, webhook not configured automatically")
+        print("⚠️ PUBLIC_URL not set, webhook not configured automatically")
+        print("📝 Visit /setWebhook endpoint manually after setting PUBLIC_URL")
     
     yield
     
@@ -52,7 +58,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 def get_base_url(request: Request) -> str:
-    # Check for North Flank's PUBLIC_URL first
+    # Check for PUBLIC_URL first
     public_url = os.getenv("PUBLIC_URL")
     if public_url:
         return public_url.rstrip("/")
@@ -66,16 +72,54 @@ async def root(request: Request):
         "status": "running",
         "base_url": PUBLIC_BASE_URL,
         "log_url": f"{PUBLIC_BASE_URL}/run.jsonl",
-        "deployment": "North Flank"
+        "deployment": "Render",
+        "endpoints": {
+            "health": f"{PUBLIC_BASE_URL}/health",
+            "setWebhook": f"{PUBLIC_BASE_URL}/setWebhook",
+            "debug": f"{PUBLIC_BASE_URL}/debug/env",
+            "logs": f"{PUBLIC_BASE_URL}/run.jsonl"
+        }
     }
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for North Flank"""
+    """Health check endpoint for Render"""
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
     }
+
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables"""
+    return {
+        "TELEGRAM_BOT_TOKEN": "✅ Set" if os.getenv("TELEGRAM_BOT_TOKEN") else "❌ Missing",
+        "GEMINI_API_KEY": "✅ Set" if os.getenv("GEMINI_API_KEY") else "❌ Missing",
+        "PUBLIC_URL": os.getenv("PUBLIC_URL", "❌ Not set"),
+        "PORT": os.getenv("PORT", "10000"),
+        "all_vars": dict(os.environ)
+    }
+
+@app.get("/debug/webhook")
+async def debug_webhook():
+    """Debug endpoint to check webhook status"""
+    try:
+        webhook_info = await telegram_app.bot.get_webhook_info()
+        expected_url = f"{os.getenv('PUBLIC_URL', '')}/webhook"
+        return {
+            "current_webhook": webhook_info.url,
+            "expected_webhook": expected_url,
+            "is_set": webhook_info.url == expected_url,
+            "webhook_info": {
+                "url": webhook_info.url,
+                "has_custom_certificate": webhook_info.has_custom_certificate,
+                "pending_update_count": webhook_info.pending_update_count,
+                "max_connections": webhook_info.max_connections,
+                "ip_address": webhook_info.ip_address
+            }
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/run.jsonl")
 def log():
@@ -214,7 +258,7 @@ async def handle_question(update, context):
         "question": update.message.text
     })
     
-    base_url = context.bot_data.get("base_url", os.getenv("PUBLIC_URL", "http://localhost:8000"))
+    base_url = context.bot_data.get("base_url", os.getenv("PUBLIC_URL", "https://analyst-telegram-bot-1.onrender.com"))
     ans = answer(update.message.text, base_url)
     
     log_event({
@@ -240,7 +284,9 @@ async def telegram_webhook(request: Request):
         
         data = await request.json()
         update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
+        
+        # Process in background to avoid timeout
+        asyncio.create_task(telegram_app.process_update(update))
         
         return {"ok": True}
         
@@ -257,16 +303,35 @@ async def telegram_webhook(request: Request):
 
 @app.get("/setWebhook")
 async def set_webhook(request: Request):
-    base_url = get_base_url(request)
-    url = f"{base_url}/webhook"
-    
-    success = await telegram_app.bot.set_webhook(url)
-    
-    return {
-        "success": success,
-        "url": url,
-        "message": "Webhook configured successfully" if success else "Webhook configuration failed"
-    }
+    """Manually set the webhook"""
+    try:
+        base_url = get_base_url(request)
+        url = f"{base_url}/webhook"
+        
+        # Set webhook
+        success = await telegram_app.bot.set_webhook(url)
+        
+        log_event({
+            "event": "webhook_set",
+            "url": url,
+            "success": success
+        })
+        
+        return {
+            "success": success,
+            "url": url,
+            "message": "Webhook configured successfully" if success else "Webhook configuration failed"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.get("/warmup")
+async def warmup():
+    """Quick warmup endpoint"""
+    return {"status": "warming up"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=PORT)

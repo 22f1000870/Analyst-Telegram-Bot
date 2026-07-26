@@ -17,7 +17,7 @@ import requests
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("GROQ_API_KEY")
 BASE_URL_MODEL=os.getenv("BASE_URL_MODEL")
 MODEL=os.getenv("MODEL")
 # Render uses port 10000 by default

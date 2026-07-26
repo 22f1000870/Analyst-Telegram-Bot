@@ -18,13 +18,14 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY = os.getenv("GEMINI_API_KEY")
-
+BASE_URL_MODEL=os.getenv("BASE_URL_MODEL")
+MODEL=os.getenv("MODEL")
 # Render uses port 10000 by default
 PORT = int(os.getenv("PORT", 10000))
 
 LOG_FILE = "run.jsonl"
 
-client = OpenAI(api_key=API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+client = OpenAI(api_key=API_KEY, base_url=BASE_URL_MODEL)
 
 telegram_app = (
     ApplicationBuilder()
@@ -197,7 +198,7 @@ Do not output any text outside the JSON object.
     
     try:
         response = client.chat.completions.create(
-            model="gemini-2.0-flash-lite",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question},

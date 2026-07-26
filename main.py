@@ -13,8 +13,21 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 import asyncio
 import requests
-
+import asyncio
+import httpx
 load_dotenv()
+
+async def keep_alive():
+    """Ping self every 4 minutes to prevent Render spin-down"""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            await asyncio.sleep(500)
+            try:
+                url = os.getenv("PUBLIC_URL") + "/health"
+                await client.get(url)
+                print(f"✅ Keep-alive at {datetime.now()}")
+            except:
+                pass
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY = os.getenv("GROQ_API_KEY")
@@ -35,6 +48,9 @@ telegram_app = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    keep_alive_task = asyncio.create_task(keep_alive())
+    print("🔥 Keep-alive started!")
     await telegram_app.initialize()
     await telegram_app.start()
     
@@ -52,11 +68,15 @@ async def lifespan(app: FastAPI):
         print("📝 Visit /setWebhook endpoint manually after setting PUBLIC_URL")
     
     yield
-    
+
+    keep_alive_task.cancel()
     await telegram_app.stop()
     await telegram_app.shutdown()
 
 app = FastAPI(lifespan=lifespan)
+
+
+
 
 def get_base_url(request: Request) -> str:
     # Check for PUBLIC_URL first
